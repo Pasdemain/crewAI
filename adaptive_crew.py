@@ -107,10 +107,18 @@ class AdaptiveCrew:
         
         # Get the analysis result
         result = analysis_crew.kickoff()
-        return result
+        
+        # Extract the raw string from the CrewOutput object
+        if hasattr(result, 'raw'):
+            return result.raw
+        else:
+            return str(result)
     
     def parse_analysis(self, analysis):
         """Parse the analysis result to extract agent configurations and tasks."""
+        if not isinstance(analysis, str):
+            analysis = str(analysis)
+            
         # Extract sections for each agent
         manager_section = re.search(r'MANAGER:(.*?)(?=UI_UX:|$)', analysis, re.DOTALL)
         ui_ux_section = re.search(r'UI_UX:(.*?)(?=DEVELOPER:|$)', analysis, re.DOTALL)
@@ -213,7 +221,12 @@ class AdaptiveCrew:
         
         # Execute the crew tasks
         result = crew.kickoff()
-        return result
+        
+        # Extract the raw output if needed
+        if hasattr(result, 'raw'):
+            return result.raw
+        else:
+            return str(result)
 
 # Example usage
 if __name__ == "__main__":
