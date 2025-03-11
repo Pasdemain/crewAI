@@ -5,19 +5,27 @@ import os
 import datetime
 from typing import List, Dict, Any
 
-# Configure the LLM with Ollama
-ollama_llm = LLM(
-    model="ollama/llama3:8b",  # You can change to other models as needed
+# Configure the specialized LLMs for each agent role
+llama3_llm = LLM(
+    model="ollama/llama3:8b",  # General purpose model for management
+    base_url="http://localhost:11434"
+)
+
+phi3_llm = LLM(
+    model="ollama/phi3:mini",  # Good for UI/UX and design
+    base_url="http://localhost:11434"
+)
+
+codellama_llm = LLM(
+    model="ollama/codellama:7b",  # Specialized for coding tasks
     base_url="http://localhost:11434"
 )
 
 class CodeWritingCrew:
     """A dynamic crew that can write code files and track development progress."""
     
-    def __init__(self, llm=None, project_dir=None):
-        """Initialize with a specific LLM and project directory."""
-        self.llm = llm if llm else ollama_llm
-        
+    def __init__(self, project_dir=None):
+        """Initialize with project directory."""
         # Set up project directory
         self.project_dir = project_dir if project_dir else os.path.join(os.getcwd(), "generated_code")
         os.makedirs(self.project_dir, exist_ok=True)
@@ -25,7 +33,7 @@ class CodeWritingCrew:
         # Initialize code tracking
         self.code_files = {}  # Store filenames and their content
         
-        # Initialize agents
+        # Initialize agents with specialized models
         self.project_manager = self._create_project_manager()
         self.architect = self._create_architect()
         self.developer = self._create_developer()
@@ -35,42 +43,42 @@ class CodeWritingCrew:
         self.tasks = []
         
     def _create_project_manager(self):
-        """Create the project manager agent."""
+        """Create the project manager agent with llama3."""
         return Agent(
             role="Project Manager",
             goal="Coordinate the software development process and ensure clear requirements",
             backstory="You are an experienced project manager who excels at breaking down complex requirements into clear, actionable tasks. You help the team stay organized and focused.",
-            llm=self.llm,
+            llm=llama3_llm,  # Using llama3 for management tasks
             verbose=True
         )
     
     def _create_architect(self):
-        """Create the software architect agent."""
+        """Create the software architect agent with llama3."""
         return Agent(
             role="Software Architect",
             goal="Design clean, maintainable software architecture",
             backstory="You are a skilled software architect with years of experience designing robust systems. You can identify the right patterns and structures for any project.",
-            llm=self.llm,
+            llm=llama3_llm,  # Using llama3 for architecture design
             verbose=True
         )
     
     def _create_developer(self):
-        """Create the developer agent."""
+        """Create the developer agent with CodeLlama."""
         return Agent(
             role="Developer",
             goal="Implement high-quality, working code",
             backstory="You are a talented developer who writes clean, efficient, and well-documented code. You have expertise in multiple programming languages and frameworks.",
-            llm=self.llm,
+            llm=codellama_llm,  # Using CodeLlama for coding tasks
             verbose=True
         )
     
     def _create_code_reviewer(self):
-        """Create the code reviewer agent."""
+        """Create the code reviewer agent with CodeLlama."""
         return Agent(
             role="Code Reviewer",
             goal="Ensure code quality, identify bugs, and suggest improvements",
             backstory="You are a detail-oriented code reviewer with a keen eye for bugs, inefficiencies, and improvements. You help maintain high code quality standards.",
-            llm=self.llm,
+            llm=codellama_llm,  # Using CodeLlama for code review
             verbose=True
         )
     
@@ -78,6 +86,9 @@ class CodeWritingCrew:
         """Save generated code to a file."""
         # Create the full file path
         file_path = os.path.join(self.project_dir, filename)
+        
+        # Create subdirectories if needed
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
         # Save the code to the file
         with open(file_path, 'w') as file:
@@ -180,15 +191,15 @@ class CodeWritingCrew:
     def extract_files_from_design(self, design):
         """Extract file names and descriptions from architecture design."""
         # Use regex to find file mentions in the design
-        file_pattern = r'(?:filename|file):?\s*["\']?([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+)["\']?'
+        file_pattern = r'(?:filename|file):?\s*["\']?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)["\']?'
         files = re.findall(file_pattern, design, re.IGNORECASE)
         
         # If no files found with the pattern, try a simpler approach
         if not files:
-            py_files = re.findall(r'([a-zA-Z0-9_\-.]+\.py)', design, re.IGNORECASE)
-            js_files = re.findall(r'([a-zA-Z0-9_\-.]+\.js)', design, re.IGNORECASE)
-            html_files = re.findall(r'([a-zA-Z0-9_\-.]+\.html)', design, re.IGNORECASE)
-            css_files = re.findall(r'([a-zA-Z0-9_\-.]+\.css)', design, re.IGNORECASE)
+            py_files = re.findall(r'([a-zA-Z0-9_\-./]+\.py)', design, re.IGNORECASE)
+            js_files = re.findall(r'([a-zA-Z0-9_\-./]+\.js)', design, re.IGNORECASE)
+            html_files = re.findall(r'([a-zA-Z0-9_\-./]+\.html)', design, re.IGNORECASE)
+            css_files = re.findall(r'([a-zA-Z0-9_\-./]+\.css)', design, re.IGNORECASE)
             files = py_files + js_files + html_files + css_files
         
         return list(set(files))  # Remove duplicates
@@ -203,7 +214,23 @@ class CodeWritingCrew:
         for f in existing_files:
             if f != filename:
                 other_files_context += f"- {f}\n"
-                # Optionally, we could include file summaries or content here
+                # Optionally include file summaries here
+                file_content = self.read_code_from_file(f)
+                if file_content:
+                    summary = file_content[:500] + "..." if len(file_content) > 500 else file_content
+                    other_files_context += f"  Summary: {summary}\n\n"
+        
+        # Adjust context format based on file type
+        if filename.endswith('.py'):
+            language_note = "This is a Python file. Use proper Python syntax, PEP 8 style, and include docstrings."
+        elif filename.endswith('.js'):
+            language_note = "This is a JavaScript file. Use modern ES6+ syntax where appropriate."
+        elif filename.endswith('.html'):
+            language_note = "This is an HTML file. Use proper HTML5 structure and semantic tags."
+        elif filename.endswith('.css'):
+            language_note = "This is a CSS file. Use clean, organized styles with appropriate comments."
+        else:
+            language_note = f"This is a {filename.split('.')[-1]} file. Use proper syntax and conventions for this language."
         
         implementation_task = Task(
             description=f"""
@@ -219,6 +246,8 @@ class CodeWritingCrew:
             
             Current state of this file:
             {existing_code}
+            
+            {language_note}
             
             Write complete, working, well-documented code for this file. The code should be:
             1. Fully functional without errors
@@ -250,6 +279,56 @@ class CodeWritingCrew:
         # Save the implemented code to file
         file_path = self.save_code_to_file(filename, code_content)
         return file_path, code_content
+    
+    def design_ui(self, requirements, analysis):
+        """Design the user interface using Phi3 model."""
+        # Create a UI/UX designer agent using Phi3
+        ui_ux_designer = Agent(
+            role="UI/UX Designer",
+            goal="Design intuitive, user-friendly interfaces that meet user requirements",
+            backstory="You are a talented UI/UX designer with a keen eye for aesthetics and usability. You create designs that balance visual appeal with functionality.",
+            llm=phi3_llm,  # Using Phi3 for UI/UX design
+            verbose=True
+        )
+        
+        design_task = Task(
+            description=f"""
+            Based on the following requirements and analysis:
+            
+            Requirements:
+            {requirements}
+            
+            Analysis:
+            {analysis}
+            
+            Design the user interface for this application, including:
+            1. Layout and screen designs
+            2. Color scheme and typography 
+            3. User flow and interaction patterns
+            4. Visual elements and components
+            
+            Be specific about dimensions, colors (with hex codes), fonts, and layout.
+            Think step-by-step and be thorough in your design.
+            """,
+            agent=ui_ux_designer,
+            expected_output="A comprehensive UI/UX design with layout, visual elements, and interaction patterns."
+        )
+        
+        # Create a temporary crew for the design
+        design_crew = Crew(
+            agents=[ui_ux_designer],
+            tasks=[design_task],
+            verbose=True
+        )
+        
+        # Get the design result
+        result = design_crew.kickoff()
+        ui_design = result.raw if hasattr(result, 'raw') else str(result)
+        
+        # Save the UI design to a file
+        self.save_code_to_file("ui_design.md", ui_design)
+        
+        return ui_design
     
     def review_code(self, filename, code_content, requirements):
         """Review implemented code for a file."""
@@ -304,18 +383,28 @@ class CodeWritingCrew:
         design = self.design_architecture(requirements, analysis)
         print(f"\nArchitecture Design Completed: {len(design)} chars\n")
         
-        # Step 3: Extract files from design
+        # Step 3: Design the UI (if applicable)
+        if "ui" in requirements.lower() or "interface" in requirements.lower() or "design" in requirements.lower():
+            print("\n=== DESIGNING USER INTERFACE ===\n")
+            ui_design = self.design_ui(requirements, analysis)
+            print(f"\nUI Design Completed: {len(ui_design)} chars\n")
+        else:
+            ui_design = "No UI design required for this project."
+        
+        # Step 4: Extract files from design
         files_to_implement = self.extract_files_from_design(design)
         if not files_to_implement:
             # Fallback if no files were detected
             if "pygame" in requirements.lower():
                 files_to_implement = ["main.py", "game.py", "menu.py", "settings.py"]
+            elif "web" in requirements.lower() or "html" in requirements.lower():
+                files_to_implement = ["index.html", "style.css", "script.js"]
             else:
                 files_to_implement = ["main.py", "utils.py"]
         
         print(f"\nDetected {len(files_to_implement)} files to implement: {', '.join(files_to_implement)}\n")
         
-        # Step 4: Implement each file
+        # Step 5: Implement each file
         implemented_files = {}
         reviews = {}
         
@@ -325,13 +414,13 @@ class CodeWritingCrew:
             file_path, code_content = self.implement_file(filename, requirements, design, existing_files)
             implemented_files[filename] = file_path
             
-            # Step 5: Review the implemented code
+            # Step 6: Review the implemented code
             print(f"\n=== REVIEWING {filename} ===\n")
             review = self.review_code(filename, code_content, requirements)
             reviews[filename] = review
         
-        # Step 6: Generate a final report
-        report = self._generate_report(requirements, analysis, design, implemented_files, reviews)
+        # Step 7: Generate a final report
+        report = self._generate_report(requirements, analysis, design, ui_design, implemented_files, reviews)
         report_path = os.path.join(self.project_dir, "implementation_report.md")
         with open(report_path, 'w') as f:
             f.write(report)
@@ -343,7 +432,7 @@ class CodeWritingCrew:
             "report": report_path
         }
     
-    def _generate_report(self, requirements, analysis, design, implemented_files, reviews):
+    def _generate_report(self, requirements, analysis, design, ui_design, implemented_files, reviews):
         """Generate a final implementation report."""
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -353,6 +442,21 @@ Generated on: {now}
 ## Project Requirements
 ```
 {requirements[:500]}...
+```
+
+## Implementation Analysis
+```
+{analysis[:500]}...
+```
+
+## Architecture Design
+```
+{design[:500]}...
+```
+
+## UI/UX Design
+```
+{ui_design[:500]}...
 ```
 
 ## Implemented Files
