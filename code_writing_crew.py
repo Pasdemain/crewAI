@@ -82,6 +82,18 @@ class CodeWritingCrew:
             verbose=True
         )
     
+    def _create_crew(self, agents, tasks):
+        """Create a crew with the given agents and tasks."""
+        return Crew(
+            agents=agents,
+            tasks=tasks,
+            verbose=True
+        )
+    
+    def _get_current_datetime(self):
+        """Get current datetime formatted as string."""
+        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     def save_code_to_file(self, filename, code_content):
         """Save generated code to a file."""
         # Create the full file path
