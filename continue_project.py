@@ -2,6 +2,7 @@
 import os
 import sys
 import glob
+from crewai import Task, Crew
 from code_writing_crew import CodeWritingCrew, llama3_llm
 
 def clear_screen():
@@ -79,7 +80,7 @@ EXISTING FILES:
         project_context += f"\n--- {filename} ---\n{summary}\n"
     
     # Create an analysis task to understand the current project
-    analysis_task = crew.project_manager.create_task(
+    analysis_task = Task(
         description=f"""
         Analyze this existing project based on:
         
@@ -96,13 +97,15 @@ EXISTING FILES:
         
         Think step-by-step and be thorough in your analysis.
         """,
+        agent=crew.project_manager,
         expected_output="A comprehensive analysis of the existing project and plan for continuing development"
     )
     
     # Create a temporary crew for the analysis
-    analysis_crew = crew._create_crew(
+    analysis_crew = Crew(
         agents=[crew.project_manager],
-        tasks=[analysis_task]
+        tasks=[analysis_task],
+        verbose=True
     )
     
     # Get the analysis result
@@ -114,7 +117,7 @@ EXISTING FILES:
     # Extract files to update/create from the analysis
     files_to_implement = crew.extract_files_from_design(analysis)
     
-    # If no specific files were detected, check from the existing project
+    # If no specific files were detected, use the existing files
     if not files_to_implement:
         files_to_implement = list(files.keys())
     
@@ -141,8 +144,9 @@ EXISTING FILES:
         reviews[filename] = review
     
     # Generate a continuation report
+    now = crew._get_current_datetime()
     continuation_report = f"""# Project Continuation Report
-Generated on: {crew._get_current_datetime()}
+Generated on: {now}
 
 ## Original Project Analysis
 ```
